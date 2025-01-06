@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "description": "git history squash tool",
   "main": "src/index.js",
+  "bin": {
+    "git-shrink": "./src/index.js"
+  },
   "type": "module",
   "dependencies": {
     "commander": "^11.1.0"
