@@ -8,6 +8,7 @@
   },
   "type": "module",
   "dependencies": {
-    "commander": "^11.1.0"
+    "commander": "^11.1.0",
+    "simple-git": "^3.21.0"
   }
 }
