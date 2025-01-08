@@ -22,12 +22,27 @@ function messageSimilarity(a, b) {
   return Math.round((1 - dist / maxLen) * 100);
 }
 
+function jaccardSimilarity(setA, setB) {
+  if (!setA.length && !setB.length) return 0;
+  const a = new Set(setA);
+  const b = new Set(setB);
+  const intersection = [...a].filter((x) => b.has(x)).length;
+  const union = new Set([...a, ...b]).size;
+  return union === 0 ? 0 : Math.round((intersection / union) * 100);
+}
+
 export function scorePair(commitA, commitB) {
-  const msgScore = messageSimilarity(commitA.message, commitB.message);
-  return { composite: msgScore, breakdown: { message: msgScore } };
+  const msgScore  = messageSimilarity(commitA.message, commitB.message);
+  const fileScore = jaccardSimilarity(commitA.files || [], commitB.files || []);
+  const dirScore  = jaccardSimilarity(commitA.dirs  || [], commitB.dirs  || []);
+
+  // weights - rough for now, will tune after testing
+  const composite = Math.round(msgScore * 0.5 + fileScore * 0.35 + dirScore * 0.15);
+
+  return { composite, breakdown: { message: msgScore, file: fileScore, directory: dirScore } };
 }
 
 export function groupCommits(commits, options = {}) {
-  // TODO: add file scoring + actual grouping
+  // TODO: actual grouping
   return [];
 }
