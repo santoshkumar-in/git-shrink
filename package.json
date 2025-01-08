@@ -9,6 +9,7 @@
   "type": "module",
   "dependencies": {
     "commander": "^11.1.0",
+    "fastest-levenshtein": "^1.0.16",
     "simple-git": "^3.21.0"
   }
 }
