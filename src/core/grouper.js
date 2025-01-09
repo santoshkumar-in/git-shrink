@@ -91,3 +91,27 @@ export function groupCommits(commits, { threshold = 60, minGroup = 2 } = {}) {
 
   return groups.sort((a, b) => b.commits[0].date - a.commits[0].date);
 }
+
+
+function suggestMessage(commits) {
+  const cleaned = commits.map((c) => ({
+    original: c.message,
+    normalized: normalizeMessage(c.message),
+  }));
+  return cleaned.reduce((a, b) => b.normalized.length > a.normalized.length ? b : a).original;
+}
+
+function describeReason(commits) {
+  const reasons = [];
+  const uniqueFiles = new Set(commits.flatMap((c) => c.files));
+  const uniqueDirs  = new Set(commits.flatMap((c) => c.dirs));
+  if (uniqueFiles.size <= 3) {
+    reasons.push(`same file(s): ${[...uniqueFiles].slice(0, 3).join(', ')}`);
+  } else if (uniqueDirs.size <= 2) {
+    reasons.push(`same directory: ${[...uniqueDirs].join(', ')}`);
+  }
+  const msgs = commits.map((c) => normalizeMessage(c.message));
+  const avgSim = msgs.reduce((t, m, i) => i === 0 ? t : t + messageSimilarity(m, msgs[i-1]), 0) / Math.max(msgs.length - 1, 1);
+  if (avgSim > 65) reasons.push('similar commit messages');
+  return reasons.length ? reasons.join(' · ') : 'high composite similarity score';
+}
