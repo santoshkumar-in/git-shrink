@@ -1,15 +1,16 @@
 import { distance } from 'fastest-levenshtein';
 
+const WEIGHTS = {
+  message:   0.50,
+  file:      0.35,
+  directory: 0.15,
+};
+
 const NOISE_PREFIXES = /^(fix|feat|chore|wip|temp|update|add|remove|refactor|hotfix|patch|minor|tweak|misc|test|tests|style|docs|ci|build|revert)[:\s!]*/i;
 const NOISE_WORDS = /\b(the|a|an|and|or|to|in|on|for|of|with|at|by)\b/gi;
 
 function normalizeMessage(msg) {
-  return msg
-    .toLowerCase()
-    .replace(NOISE_PREFIXES, '')
-    .replace(NOISE_WORDS, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+  return msg.toLowerCase().replace(NOISE_PREFIXES, '').replace(NOISE_WORDS, ' ').replace(/\s+/g, ' ').trim();
 }
 
 function messageSimilarity(a, b) {
@@ -18,8 +19,7 @@ function messageSimilarity(a, b) {
   if (!na || !nb) return 0;
   const maxLen = Math.max(na.length, nb.length);
   if (maxLen === 0) return 100;
-  const dist = distance(na, nb);
-  return Math.round((1 - dist / maxLen) * 100);
+  return Math.round((1 - distance(na, nb) / maxLen) * 100);
 }
 
 function jaccardSimilarity(setA, setB) {
@@ -35,46 +35,59 @@ export function scorePair(commitA, commitB) {
   const msgScore  = messageSimilarity(commitA.message, commitB.message);
   const fileScore = jaccardSimilarity(commitA.files || [], commitB.files || []);
   const dirScore  = jaccardSimilarity(commitA.dirs  || [], commitB.dirs  || []);
-
-  // weights - rough for now, will tune after testing
-  const composite = Math.round(msgScore * 0.5 + fileScore * 0.35 + dirScore * 0.15);
-
+  const composite = Math.round(msgScore * WEIGHTS.message + fileScore * WEIGHTS.file + dirScore * WEIGHTS.directory);
   return { composite, breakdown: { message: msgScore, file: fileScore, directory: dirScore } };
 }
 
-export function groupCommits(commits, options = {}) {
-  // TODO: actual grouping
-  return [];
+class UnionFind {
+  constructor(n) {
+    this.parent = Array.from({ length: n }, (_, i) => i);
+    this.rank = new Array(n).fill(0);
+  }
+  find(x) {
+    if (this.parent[x] !== x) this.parent[x] = this.find(this.parent[x]);
+    return this.parent[x];
+  }
+  union(x, y) {
+    const px = this.find(x), py = this.find(y);
+    if (px === py) return;
+    if (this.rank[px] < this.rank[py]) this.parent[px] = py;
+    else if (this.rank[px] > this.rank[py]) this.parent[py] = px;
+    else { this.parent[py] = px; this.rank[px]++; }
+  }
 }
 
-
-// --- grouping (naive first pass, will improve) ---
-
 export function groupCommits(commits, { threshold = 60, minGroup = 2 } = {}) {
-  const groups = [];
-  const used = new Set();
+  const n = commits.length;
+  const uf = new UnionFind(n);
+  const pairScores = new Map();
 
-  for (let i = 0; i < commits.length; i++) {
-    if (used.has(i)) continue;
-    const group = [commits[i]];
-    used.add(i);
-
-    for (let j = i + 1; j < commits.length; j++) {
-      if (used.has(j)) continue;
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
       const score = scorePair(commits[i], commits[j]);
-      if (score.composite >= threshold) {
-        group.push(commits[j]);
-        used.add(j);
-      }
+      pairScores.set(`${i},${j}`, score);
+      if (score.composite >= threshold) uf.union(i, j);
     }
+  }
 
+  const groupMap = new Map();
+  for (let i = 0; i < n; i++) {
+    const root = uf.find(i);
+    if (!groupMap.has(root)) groupMap.set(root, []);
+    groupMap.get(root).push(i);
+  }
+
+  const groups = [];
+  for (const [, indices] of groupMap) {
+    const groupCommits = indices.map((i) => commits[i]);
     groups.push({
-      type: group.length >= minGroup ? 'squash' : 'keep',
-      commits: group,
-      squashedMessage: group[0].message,
+      type: groupCommits.length >= minGroup ? 'squash' : 'keep',
+      commits: groupCommits,
+      squashedMessage: groupCommits[0].message,
       avgScore: 0,
+      reason: 'similar commits',
     });
   }
 
-  return groups;
+  return groups.sort((a, b) => b.commits[0].date - a.commits[0].date);
 }
