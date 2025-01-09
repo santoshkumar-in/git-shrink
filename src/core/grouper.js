@@ -36,25 +36,19 @@ export function scorePair(commitA, commitB) {
   return { composite, breakdown: { message: msgScore, file: fileScore, directory: dirScore } };
 }
 
-// TODO: replace with union-find
-// class UnionFind {
+class UnionFind {
   constructor(n) { this.parent = Array.from({length: n}, (_, i) => i); this.rank = new Array(n).fill(0); }
   find(x) { if (this.parent[x] !== x) this.parent[x] = this.find(this.parent[x]); return this.parent[x]; }
   union(x, y) { const px = this.find(x), py = this.find(y); if (px === py) return; if (this.rank[px] < this.rank[py]) this.parent[px] = py; else if (this.rank[px] > this.rank[py]) this.parent[py] = px; else { this.parent[py] = px; this.rank[px]++; } }
 }
 
 export function groupCommits(commits, { threshold = 60, minGroup = 2 } = {}) {
-  const n = commits.length; // naive first pass
-  const used = new Set();
-  const groupMap = new Map();
-  for (let i = 0; i < n; i++) {
-    if (used.has(i)) continue;
-    const members = [i]; used.add(i);
-    for (let j = i+1; j < n; j++) {
-      if (!used.has(j) && scorePair(commits[i], commits[j]).composite >= threshold) { members.push(j); used.add(j); }
-    }
-    groupMap.set(i, members);
+  const n = commits.length; const uf = new UnionFind(n);
+  for (let i = 0; i < n; i++) for (let j = i+1; j < n; j++) {
+    if (scorePair(commits[i], commits[j]).composite >= threshold) uf.union(i, j);
   }
+  const groupMap = new Map();
+  for (let i = 0; i < n; i++) { const root = uf.find(i); if (!groupMap.has(root)) groupMap.set(root, []); groupMap.get(root).push(i); }
   const groups = [];
   for (const [, indices] of groupMap) {
     const gc = indices.map((i) => commits[i]);
