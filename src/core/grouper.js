@@ -46,3 +46,35 @@ export function groupCommits(commits, options = {}) {
   // TODO: actual grouping
   return [];
 }
+
+
+// --- grouping (naive first pass, will improve) ---
+
+export function groupCommits(commits, { threshold = 60, minGroup = 2 } = {}) {
+  const groups = [];
+  const used = new Set();
+
+  for (let i = 0; i < commits.length; i++) {
+    if (used.has(i)) continue;
+    const group = [commits[i]];
+    used.add(i);
+
+    for (let j = i + 1; j < commits.length; j++) {
+      if (used.has(j)) continue;
+      const score = scorePair(commits[i], commits[j]);
+      if (score.composite >= threshold) {
+        group.push(commits[j]);
+        used.add(j);
+      }
+    }
+
+    groups.push({
+      type: group.length >= minGroup ? 'squash' : 'keep',
+      commits: group,
+      squashedMessage: group[0].message,
+      avgScore: 0,
+    });
+  }
+
+  return groups;
+}
