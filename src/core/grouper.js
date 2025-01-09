@@ -52,7 +52,10 @@ export function groupCommits(commits, { threshold = 60, minGroup = 2 } = {}) {
   const groups = [];
   for (const [, indices] of groupMap) {
     const gc = indices.map((i) => commits[i]);
-    groups.push({ type: gc.length >= minGroup ? 'squash' : 'keep', commits: gc, squashedMessage: gc[0].message, avgScore: 0, reason: 'similar' });
+    const best = gc.reduce((a, b) => b.message.length > a.message.length ? b : a);
+    const uniqueFiles = new Set(gc.flatMap(x => x.files || []));
+    const reason = uniqueFiles.size <= 3 ? `same file(s): ${[...uniqueFiles].slice(0,3).join(', ')}` : 'similar commit messages';
+    groups.push({ type: gc.length >= minGroup ? 'squash' : 'keep', commits: gc, squashedMessage: best.message, avgScore: 0, reason });
   }
   return groups.sort((a, b) => b.commits[0].date - a.commits[0].date);
 }
