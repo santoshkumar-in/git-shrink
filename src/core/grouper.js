@@ -26,7 +26,7 @@ function jaccardSimilarity(setA, setB) {
   return union === 0 ? 0 : Math.round((intersection / union) * 100);
 }
 
-const WEIGHTS = { message: 0.50, file: 0.35, directory: 0.15 };
+const WEIGHTS = { message: 0.55, file: 0.30, directory: 0.15 };
 
 export function scorePair(commitA, commitB) {
   const msgScore  = messageSimilarity(commitA.message, commitB.message);
@@ -52,10 +52,7 @@ export function groupCommits(commits, { threshold = 60, minGroup = 2 } = {}) {
   const groups = [];
   for (const [, indices] of groupMap) {
     const gc = indices.map((i) => commits[i]);
-    const best = gc.reduce((a, b) => b.message.length > a.message.length ? b : a);
-    const uniqueFiles = new Set(gc.flatMap(x => x.files || []));
-    const reason = uniqueFiles.size <= 3 ? `same file(s): ${[...uniqueFiles].slice(0,3).join(', ')}` : 'similar commit messages';
-    groups.push({ type: gc.length >= minGroup ? 'squash' : 'keep', commits: gc, squashedMessage: best.message, avgScore: 0, reason });
+    groups.push({ type: gc.length >= minGroup ? 'squash' : 'keep', commits: gc, squashedMessage: gc[0].message, avgScore: 0, reason: 'similar' });
   }
   return groups.sort((a, b) => b.commits[0].date - a.commits[0].date);
 }
