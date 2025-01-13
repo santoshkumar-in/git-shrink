@@ -9,10 +9,12 @@ export async function analyzeCommand(opts) {
   const minGroup  = Number(opts.minGroup  ?? 2);
   const count     = Number(opts.count     ?? 50);
 
-  console.log(chalk.dim('Loading commits...'));
+  const ora = (await import('ora')).default;
+  const spinner = ora({ text: chalk.dim('Reading git history…'), color: 'blue' }).start();
   let commits;
   try { commits = await getCommits({ count }); }
-  catch (err) { console.error(chalk.red(err.message)); process.exit(1); }
+  catch (err) { spinner.fail(chalk.red(err.message)); process.exit(1); }
+  spinner.succeed(chalk.green(`Loaded ${commits.length} commits`));
 
   const groups = groupCommits(commits, { threshold, minGroup });
   const squashGroups = groups.filter((g) => g.type === 'squash');
