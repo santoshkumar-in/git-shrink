@@ -2,6 +2,7 @@ import chalk from 'chalk';
 import { getCommits } from '../core/git.js';
 import { groupCommits } from '../core/grouper.js';
 import { renderGroupTable, renderSummaryBox } from '../utils/render.js';
+import inquirer from 'inquirer';
 import path from 'path';
 
 export async function analyzeCommand(opts) {
@@ -20,7 +21,16 @@ export async function analyzeCommand(opts) {
   const squashGroups = groups.filter((g) => g.type === 'squash');
   for (let i = 0; i < squashGroups.length; i++) renderGroupTable(squashGroups[i], i+1, squashGroups.length);
 
-  const totalAfter = groups.length;
-  const reduction  = Math.round((1 - totalAfter / commits.length) * 100);
+  const keepGroups  = groups.filter((g) => g.type === 'keep');
+  const totalAfter  = squashGroups.length + keepGroups.length;
+  const reduction   = Math.round((1 - totalAfter / commits.length) * 100);
   renderSummaryBox({ totalBefore: commits.length, totalAfter, reduction, squashGroups });
+
+  if (!opts.auto) {
+    for (const group of squashGroups) {
+      const { action } = await inquirer.prompt([{ type: 'list', name: 'action', message: 'Squash this group?', choices: ['squash', 'skip'] }]);
+      if (action === 'skip') continue;
+    }
+  }
+
 }
