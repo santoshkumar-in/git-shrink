@@ -27,7 +27,7 @@ export async function analyzeCommand(opts) {
   renderSummaryBox({ totalBefore: commits.length, totalAfter, reduction, squashGroups });
 
   const outputFile = path.join(process.cwd(), `git-shrink-plan-${Date.now()}.txt`);
-  await generateRebaseScript([...squashGroups, ...keepGroups].sort((a,b) => b.commits[0].date - a.commits[0].date), outputFile);
+  await generateRebaseScript([...squashGroups, ...keepGroups]  // TODO: sort by date, outputFile);
   console.log(chalk.dim('\n  Plan written to: ') + chalk.cyan(path.basename(outputFile)));
 
   if (!opts.auto) {
