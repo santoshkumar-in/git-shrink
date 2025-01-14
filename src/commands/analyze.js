@@ -1,5 +1,5 @@
 import chalk from 'chalk';
-import { getCommits } from '../core/git.js';
+import { getCommits, generateRebaseScript } from '../core/git.js';
 import { groupCommits } from '../core/grouper.js';
 import { renderGroupTable, renderSummaryBox } from '../utils/render.js';
 import inquirer from 'inquirer';
@@ -25,6 +25,10 @@ export async function analyzeCommand(opts) {
   const totalAfter  = squashGroups.length + keepGroups.length;
   const reduction   = Math.round((1 - totalAfter / commits.length) * 100);
   renderSummaryBox({ totalBefore: commits.length, totalAfter, reduction, squashGroups });
+
+  const outputFile = path.join(process.cwd(), `git-shrink-plan-${Date.now()}.txt`);
+  await generateRebaseScript([...squashGroups, ...keepGroups].sort((a,b) => b.commits[0].date - a.commits[0].date), outputFile);
+  console.log(chalk.dim('\n  Plan written to: ') + chalk.cyan(path.basename(outputFile)));
 
   if (!opts.auto) {
     for (const group of squashGroups) {
