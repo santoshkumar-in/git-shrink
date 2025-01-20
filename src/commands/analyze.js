@@ -19,6 +19,8 @@ export async function analyzeCommand(opts) {
 
   const groups = groupCommits(commits, { threshold, minGroup });
   const squashGroups = groups.filter((g) => g.type === 'squash');
+  if (squashGroups.length === 0) { console.log(chalk.yellow('\n  ✓ History looks clean.\n')); return; }
+  if (opts.dryRun) { renderSummaryBox({ totalBefore: commits.length, totalAfter: groups.length, reduction: Math.round((1 - groups.length/commits.length)*100), squashGroups, dryRun: true }); return; }
   for (let i = 0; i < squashGroups.length; i++) renderGroupTable(squashGroups[i], i+1, squashGroups.length);
 
   const keepGroups  = groups.filter((g) => g.type === 'keep');
@@ -27,7 +29,7 @@ export async function analyzeCommand(opts) {
   renderSummaryBox({ totalBefore: commits.length, totalAfter, reduction, squashGroups });
 
   const outputFile = path.join(process.cwd(), `git-shrink-plan-${Date.now()}.txt`);
-  await generateRebaseScript([...squashGroups, ...keepGroups]  // TODO: sort by date, outputFile);
+  await generateRebaseScript([...squashGroups, ...keepGroups].sort((a,b) => b.commits[0].date - a.commits[0].date), outputFile);
   console.log(chalk.dim('\n  Plan written to: ') + chalk.cyan(path.basename(outputFile)));
 
   if (!opts.auto) {
