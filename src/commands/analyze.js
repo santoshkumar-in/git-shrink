@@ -13,7 +13,7 @@ export async function analyzeCommand(opts) {
   const ora = (await import('ora')).default;
   const spinner = ora({ text: chalk.dim('Reading git history…'), color: 'blue' }).start();
   let commits;
-  try { commits = await getCommits({ count }); }
+  try { commits = await getCommits({ count, from: opts.from, to: opts.to, branch: opts.branch }); }
   catch (err) { spinner.fail(chalk.red(err.message)); process.exit(1); }
   spinner.succeed(chalk.green(`Loaded ${commits.length} commits`));
 
