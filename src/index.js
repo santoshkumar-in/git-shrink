@@ -5,7 +5,9 @@ import { analyzeCommand } from './commands/analyze.js';
 import { applyCommand } from './commands/apply.js';
 import { statsCommand } from './commands/stats.js';
 
-program.name('git-shrink').version('0.1.0').description('Intelligently compresses bloated git histories');
+const pkg = JSON.parse((await import('fs')).readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+console.log(chalk.bold.hex('#4a9eff')(`\n  git-shrink`) + chalk.dim(` v${pkg.version}`) + chalk.dim('  — semantic commit history compressor\n'));
+program.name('git-shrink').version(pkg.version).description('Intelligently compresses bloated git histories');
 program.command('analyze').alias('a').description('Analyze commits and suggest groupings')
   .option('-n, --count <number>', 'number of commits to analyze from HEAD', '50')
   .option('--auto', 'skip interactive mode')
