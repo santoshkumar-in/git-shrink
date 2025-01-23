@@ -1,3 +1,5 @@
 node_modules/
 *.log
+git-shrink-plan-*.txt
 .DS_Store
+coverage/
