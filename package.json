@@ -1,6 +1,6 @@
 {
   "name": "git-shrink",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Semantic git history compressor — intelligently squashes bloated commit histories by grouping related commits across file proximity, message similarity, time windows, and branch origin.",
   "main": "src/index.js",
   "bin": {
@@ -12,7 +12,13 @@
     "lint": "eslint src/"
   },
   "keywords": [
-    "git", "rebase", "squash", "commit", "history", "cli", "devtools"
+    "git",
+    "rebase",
+    "squash",
+    "commit",
+    "history",
+    "cli",
+    "devtools"
   ],
   "author": "Santosh Kumar <github.com/santoshkumar-in>",
   "license": "MIT",
