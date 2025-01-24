@@ -1,8 +1,6 @@
 import chalk from "chalk";
 import ora from "ora";
 import inquirer from "inquirer";
-import { createRequire } from "module"; // leftover
-import { writeFileSync } from "fs"; // unused
 import { createRequire } from "module";
 import path from "path";
 import { writeFileSync } from "fs";
