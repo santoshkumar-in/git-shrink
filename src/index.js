@@ -2,34 +2,42 @@
 
 import { program } from "commander";
 import chalk from "chalk";
+import { readFileSync } from "fs";
 import { analyzeCommand } from "./commands/analyze.js";
 import { applyCommand } from "./commands/apply.js";
 import { statsCommand } from "./commands/stats.js";
 import { readConfig } from "./utils/config.js";
 
 const pkg = JSON.parse(
-  (await import("fs")).readFileSync(
-    new URL("../package.json", import.meta.url),
-    "utf8"
-  )
+  readFileSync(new URL("../package.json", import.meta.url), "utf8"),
 );
 
-console.log(
-  chalk.bold.hex("#4a9eff")(`\n  git-shrink`) +
-  chalk.dim(` v${pkg.version}`) +
-  chalk.dim("  — semantic commit history compressor\n")
-);
+// Suppress the startup banner when only version info is requested
+const versionRequested =
+  process.argv.includes("-v") || process.argv.includes("--version");
+
+if (!versionRequested) {
+  console.log(
+    chalk.bold.hex("#4a9eff")(`\n  git-shrink`) +
+      chalk.dim(` v${pkg.version}`) +
+      chalk.dim("  — semantic commit history compressor\n"),
+  );
+}
 
 program
   .name("git-shrink")
-  .version(pkg.version)
+  .version(pkg.version, "-v, --version", "output the current version")
   .description("Intelligently compresses bloated git histories");
 
 program
   .command("analyze")
   .alias("a")
   .description("Analyze commits and suggest groupings")
-  .option("-n, --count <number>", "number of commits to analyze from HEAD", "50")
+  .option(
+    "-n, --count <number>",
+    "number of commits to analyze from HEAD",
+    "50",
+  )
   .option("-b, --branch <branch>", "branch to analyze", "HEAD")
   .option("--from <hash>", "analyze commits from this hash")
   .option("--to <hash>", "analyze commits to this hash", "HEAD")
@@ -60,7 +68,9 @@ program
     await statsCommand(opts);
   });
 
-program.addHelpText("after", `
+program.addHelpText(
+  "after",
+  `
 ${chalk.bold("Examples:")}
   ${chalk.cyan("git-shrink analyze")}                     Analyze last 50 commits interactively
   ${chalk.cyan("git-shrink analyze --count 100 --auto")}  Auto-group last 100 commits
@@ -69,6 +79,7 @@ ${chalk.bold("Examples:")}
   ${chalk.cyan("git-shrink apply rebase-plan.txt")}       Apply a saved rebase plan
 
 ${chalk.bold("Config:")}  Place a ${chalk.yellow(".gitshrinkrc")} or ${chalk.yellow("gitshrink")} key in package.json
-`);
+`,
+);
 
 program.parse();
