@@ -14,15 +14,19 @@ export async function getCommits({ count, from, to, branch } = {}) {
     throw new Error("Not a git repository. Run git-shrink from within a git project.");
   }
 
-  const range = from ? `${from}..${to || "HEAD"}` : `${branch || "HEAD"}~${count || 50}..HEAD`;
-
   // Fetch log with stat info
-  const log = await git.log({
-    from: from,
-    to: to || branch || "HEAD",
-    "--max-count": from ? undefined : String(count || 50),
-    "--stat": null,
-  });
+  let log;
+  if (from) {
+    // Explicit range: from..to
+    log = await git.log({ from, to: to || "HEAD", "--no-merges": null });
+  } else {
+    // Default: last N commits from HEAD (or named branch)
+    log = await git.log({
+      "--max-count": String(count || 50),
+      "--no-merges": null,
+      ...(branch && branch !== "HEAD" ? { to: branch } : {}),
+    });
+  }
 
   if (!log.all.length) {
     throw new Error("No commits found in the specified range.");
@@ -66,6 +70,39 @@ export async function getCurrentBranch() {
 }
 
 /**
+ * Returns the upstream tracking ref for the current branch (e.g. "origin/main"),
+ * or null if no tracking branch is configured.
+ */
+export async function getUpstreamRef() {
+  const git = simpleGit(process.cwd());
+  try {
+    const result = await git.raw(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]);
+    return result.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Returns the range of commits not yet pushed to the upstream tracking branch.
+ * Returns { from: "origin/main", to: "HEAD", count: N } or null if nothing unpushed.
+ */
+export async function getUnpushedRange() {
+  const git = simpleGit(process.cwd());
+  const upstream = await getUpstreamRef();
+  if (!upstream) return null;
+
+  try {
+    const result = await git.raw(["rev-list", "--count", `${upstream}..HEAD`]);
+    const count = parseInt(result.trim(), 10);
+    if (!count || count === 0) return null;
+    return { from: upstream, to: "HEAD", count };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Writes a git-rebase todo script to disk.
  */
 export async function generateRebaseScript(groups, outputPath) {
@@ -73,11 +110,12 @@ export async function generateRebaseScript(groups, outputPath) {
   const lines = [];
 
   for (const group of groups) {
+    // commits are sorted oldest-first — oldest is the pick base, rest are squashed into it
+    const [oldest, ...rest] = group.commits;
     if (group.commits.length === 1) {
-      lines.push(`pick ${group.commits[0].shortHash} ${group.commits[0].message}`);
+      lines.push(`pick ${oldest.shortHash} ${oldest.message}`);
     } else {
-      const [head, ...rest] = group.commits;
-      lines.push(`pick ${head.shortHash} ${group.squashedMessage || head.message}`);
+      lines.push(`pick ${oldest.shortHash} ${group.squashedMessage || oldest.message}`);
       for (const c of rest) {
         lines.push(`squash ${c.shortHash} ${c.message}`);
       }

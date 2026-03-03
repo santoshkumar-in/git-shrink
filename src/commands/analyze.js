@@ -4,21 +4,33 @@ import inquirer from "inquirer";
 import { createRequire } from "module";
 import path from "path";
 import { writeFileSync } from "fs";
-import { getCommits, generateRebaseScript } from "../core/git.js";
+import { getCommits, generateRebaseScript, getUnpushedRange } from "../core/git.js";
 import { groupCommits } from "../core/grouper.js";
 import { renderGroupTable, renderSummaryBox, renderScoreBar } from "../utils/render.js";
 
 export async function analyzeCommand(opts) {
-  const threshold  = Number(opts.threshold  ?? 60);
+  const threshold  = Number(opts.threshold  ?? 50);
   const minGroup   = Number(opts.minGroup   ?? 2);
   const count      = Number(opts.count      ?? 50);
 
   // ── 1. Fetch commits ────────────────────────────────────────────────────────
   const spinner = ora({ text: chalk.dim("Reading git history…"), color: "blue" }).start();
 
+  // Auto-detect unpushed commits when no explicit range or count is provided
+  const userSpecifiedRange = opts.from || opts.count !== undefined;
+  let fetchOpts = { count, from: opts.from, to: opts.to, branch: opts.branch };
+
+  if (!userSpecifiedRange) {
+    const unpushed = await getUnpushedRange();
+    if (unpushed) {
+      fetchOpts = { from: unpushed.from, to: unpushed.to };
+      spinner.text = chalk.dim(`Found ${unpushed.count} unpushed commit(s) — analyzing…`);
+    }
+  }
+
   let commits;
   try {
-    commits = await getCommits({ count, from: opts.from, to: opts.to, branch: opts.branch });
+    commits = await getCommits(fetchOpts);
   } catch (err) {
     spinner.fail(chalk.red(err.message));
     process.exit(1);
@@ -119,7 +131,7 @@ export async function analyzeCommand(opts) {
   const finalGroups = [
     ...approvedGroups,
     ...keepGroups,
-  ].sort((a, b) => b.commits[0].date - a.commits[0].date);
+  ].sort((a, b) => a.commits[0].date - b.commits[0].date);  // oldest-first for rebase todo order
 
   // ── 7. Write rebase script ─────────────────────────────────────────────────
   const outputFile = path.join(process.cwd(), `git-shrink-plan-${Date.now()}.txt`);

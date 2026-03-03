@@ -8,7 +8,7 @@ const explorer = cosmiconfig("gitshrink");
  */
 export async function readConfig() {
   const defaults = {
-    threshold: 60,
+    threshold: 50,
     minGroup:  2,
     count:     50,
   };

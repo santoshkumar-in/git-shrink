@@ -15,13 +15,78 @@ export async function applyCommand(rebaseFile, opts) {
 
   const plan = readFileSync(filePath, "utf8").trim();
   const lines = plan.split("\n").filter((l) => l.trim());
-  const pickCount = lines.filter((l) => l.startsWith("pick")).length;
+  const pickCount   = lines.filter((l) => l.startsWith("pick")).length;
   const squashCount = lines.filter((l) => l.startsWith("squash")).length;
 
-  console.log(chalk.bold(`\n  Rebase Plan: `) + chalk.dim(rebaseFile));
-  console.log(chalk.dim(`  ${pickCount} picks, ${squashCount} squashes\n`));
+  // Extract all action lines in order: [{ action, hash, message }, ...]
+  const actionLines = lines
+    .filter((l) => l.startsWith("pick") || l.startsWith("squash"))
+    .map((l) => {
+      const [action, hash, ...rest] = l.split(/\s+/);
+      return { action, hash, message: rest.join(" ") };
+    });
 
-  // Print a preview
+  if (!actionLines.length) {
+    console.error(chalk.red("\n  Error: No commits found in plan file.\n"));
+    process.exit(1);
+  }
+
+  // Find the first commit that is part of a squash group.
+  // That means: the first pick that is immediately followed by a squash,
+  // OR the first squash itself — whichever comes first.
+  // We only need to rebase from the parent of that commit onward.
+  // Everything before it is an unchanged pick and doesn't need replaying.
+  let firstChangedIndex = -1;
+  for (let i = 0; i < actionLines.length; i++) {
+    const isSquash = actionLines[i].action === "squash";
+    const nextIsSquash = actionLines[i + 1]?.action === "squash";
+    if (isSquash || nextIsSquash) {
+      // Walk back to find the pick that heads this squash block
+      let j = i;
+      while (j > 0 && actionLines[j].action !== "pick") j--;
+      firstChangedIndex = j;
+      break;
+    }
+  }
+
+  if (firstChangedIndex === -1) {
+    // No squashes in the plan — nothing to do
+    console.log(chalk.yellow("\n  No squash operations found in plan. Nothing to apply.\n"));
+    return;
+  }
+
+  const baseHash = actionLines[firstChangedIndex].hash;
+
+  // Find the parent of that commit to use as the rebase base
+  let rebaseBase;
+  let useRoot = false;
+  try {
+    rebaseBase = execSync(
+      `git rev-parse --verify ${baseHash}^`,
+      { cwd: process.cwd(), encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }
+    ).trim();
+  } catch {
+    // No parent — this is the root commit
+    useRoot = true;
+  }
+
+  // Build the minimal plan: only the commits from firstChangedIndex onward.
+  // The commits before that are untouched picks — no need to replay them.
+  const relevantLines = actionLines.slice(firstChangedIndex);
+  const minimalPlan = relevantLines
+    .map((l) => `${l.action} ${l.hash} ${l.message}`)
+    .join("\n") + "\n";
+
+  // Write the minimal plan to a temp file
+  const tmpPlanPath = filePath + ".minimal.tmp";
+  const { writeFileSync } = await import("fs");
+  writeFileSync(tmpPlanPath, minimalPlan, "utf8");
+
+  // ── Display ────────────────────────────────────────────────────────────────
+  console.log(chalk.bold(`\n  Rebase Plan: `) + chalk.dim(rebaseFile));
+  console.log(chalk.dim(`  ${pickCount} picks, ${squashCount} squashes`));
+  console.log(chalk.dim(`  Rebasing from: `) + chalk.cyan(baseHash) + chalk.dim(` (${actionLines[firstChangedIndex].message.slice(0, 50)})\n`));
+
   const preview = lines.slice(0, 12);
   for (const line of preview) {
     if (line.startsWith("pick")) {
@@ -36,6 +101,7 @@ export async function applyCommand(rebaseFile, opts) {
 
   if (opts.dryRun) {
     console.log(chalk.dim("\n  Dry run — rebase not executed.\n"));
+    try { require("fs").unlinkSync(tmpPlanPath); } catch {}
     return;
   }
 
@@ -61,16 +127,17 @@ export async function applyCommand(rebaseFile, opts) {
 
   if (!confirmed) {
     console.log(chalk.dim("\n  Cancelled. No changes made.\n"));
+    try { (await import("fs")).unlinkSync(tmpPlanPath); } catch {}
     return;
   }
 
   const spinner = ora({ text: chalk.dim("Running git rebase…"), color: "blue" }).start();
 
   try {
-    // We use GIT_SEQUENCE_EDITOR to feed our plan directly into the rebase
-    const absFile = filePath.replace(/\\/g, "/");
+    const absTmpPlan = tmpPlanPath.replace(/\\/g, "/");
+    const rebaseTarget = useRoot ? "--root" : rebaseBase;
     execSync(
-      `GIT_SEQUENCE_EDITOR="cp '${absFile}'" git rebase -i --autosquash HEAD~${pickCount + squashCount}`,
+      `GIT_SEQUENCE_EDITOR="cp '${absTmpPlan}'" git rebase -i ${rebaseTarget}`,
       { stdio: "inherit", cwd: process.cwd() }
     );
     spinner.succeed(chalk.green("Rebase complete."));
@@ -79,5 +146,8 @@ export async function applyCommand(rebaseFile, opts) {
     spinner.fail(chalk.red("Rebase failed."));
     console.log(chalk.dim("\n  To abort: ") + chalk.cyan("git rebase --abort"));
     console.log(chalk.dim("  To continue after resolving conflicts: ") + chalk.cyan("git rebase --continue\n"));
+  } finally {
+    // Clean up temp file
+    try { (await import("fs")).unlinkSync(tmpPlanPath); } catch {}
   }
 }

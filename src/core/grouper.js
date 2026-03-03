@@ -39,15 +39,34 @@ function normalizeMessage(msg) {
 
 /**
  * Levenshtein-based similarity score (0–100).
+ *
+ * Falls back to raw message comparison when normalization strips both
+ * messages to empty (e.g. bare "fix", "wip", "temp" commits).
  */
 function messageSimilarity(a, b) {
   const na = normalizeMessage(a);
   const nb = normalizeMessage(b);
-  if (!na || !nb) return 0;
+
+  // Both normalized to empty (e.g. "fix" vs "fix") — compare raw trimmed
+  if (!na && !nb) {
+    const ra = a.toLowerCase().trim();
+    const rb = b.toLowerCase().trim();
+    if (!ra || !rb) return 0;
+    const maxLen = Math.max(ra.length, rb.length);
+    return Math.round((1 - distance(ra, rb) / maxLen) * 100);
+  }
+
+  // One side normalized to empty — fall back to full raw comparison
+  if (!na || !nb) {
+    const ra = a.toLowerCase().trim();
+    const rb = b.toLowerCase().trim();
+    const maxLen = Math.max(ra.length, rb.length);
+    return Math.round((1 - distance(ra, rb) / maxLen) * 100);
+  }
+
   const maxLen = Math.max(na.length, nb.length);
   if (maxLen === 0) return 100;
-  const dist = distance(na, nb);
-  return Math.round((1 - dist / maxLen) * 100);
+  return Math.round((1 - distance(na, nb) / maxLen) * 100);
 }
 
 /**
@@ -115,7 +134,7 @@ class UnionFind {
  *
  * @returns {Array} groups — each group has commits[], scores[], suggestedMessage
  */
-export function groupCommits(commits, { threshold = 60, minGroup = 2 } = {}) {
+export function groupCommits(commits, { threshold = 50, minGroup = 2 } = {}) {
   const n = commits.length;
   const uf = new UnionFind(n);
   const pairScores = new Map(); // "i,j" -> score object
@@ -167,12 +186,14 @@ export function groupCommits(commits, { threshold = 60, minGroup = 2 } = {}) {
       }
     }
 
+    // Sort commits within the group oldest-first so pick/squash order is correct
+    const sortedCommits = [...groupCommits].sort((a, b) => a.date - b.date);
     groups.push({
       type: "squash",
-      commits: groupCommits,
-      squashedMessage: suggestMessage(groupCommits),
+      commits: sortedCommits,
+      squashedMessage: suggestMessage(sortedCommits),
       avgScore: pairs > 0 ? Math.round(totalScore / pairs) : 0,
-      reason: describeReason(groupCommits),
+      reason: describeReason(sortedCommits),
     });
   }
 
