@@ -86,19 +86,40 @@ git-shrink apply git-shrink-plan-1706123456789.txt
 
 Executes a previously generated rebase plan after a final confirmation prompt.
 
+```bash
+# Force apply on a feature/fix branch that has already been pushed
+git-shrink apply git-shrink-plan-1706123456789.txt --force
+```
+
 ---
 
 ## Options
 
-| Flag                  | Default | Description                              |
-| --------------------- | ------- | ---------------------------------------- |
-| `--count <n>`         | `50`    | Number of commits to analyze from HEAD   |
-| `--from <hash>`       | —       | Start of commit range                    |
-| `--to <hash>`         | `HEAD`  | End of commit range                      |
-| `--auto`              | `false` | Skip interactive prompts                 |
-| `--dry-run`           | `false` | Preview only, no files written           |
-| `--threshold <0-100>` | `60`    | Minimum similarity score to form a group |
-| `--min-group <n>`     | `2`     | Minimum commits required to form a group |
+### `git-shrink analyze`
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--count <n>` | `50` | Number of commits to analyze from HEAD |
+| `--from <hash>` | — | Start of commit range |
+| `--to <hash>` | `HEAD` | End of commit range |
+| `--branch <name>` | — | Analyze a specific branch |
+| `--auto` | `false` | Skip interactive prompts, approve all groups |
+| `--dry-run` | `false` | Preview only, no files written |
+| `--threshold <0-100>` | `50` | Minimum similarity score to form a group |
+| `--min-group <n>` | `2` | Minimum commits required to form a group |
+
+### `git-shrink apply`
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--dry-run` | `false` | Validate the plan without executing the rebase |
+| `-f, --force` | `false` | Skip the pushed-commit guardrail — use on feature/fix branches |
+
+### `git-shrink stats`
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--count <n>` | `100` | Number of commits to include in the health report |
 
 ---
 
@@ -106,11 +127,11 @@ Executes a previously generated rebase plan after a final confirmation prompt.
 
 Every pair of commits is scored across four dimensions, then combined into a weighted composite:
 
-| Dimension          | Weight | Method                                                                                                                                                        |
-| ------------------ | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Message similarity | 55%    | Levenshtein distance on normalized messages — strips conventional commit prefixes (`fix:`, `feat:`) and noise words (`wip`, `temp`, `minor`) before comparing |
-| File proximity     | 30%    | Jaccard similarity of changed file sets — commits touching the same files score high regardless of message wording                                            |
-| Directory overlap  | 15%    | Jaccard similarity of parent directories — weaker structural signal, useful when file names differ but work is in the same area                               |
+| Dimension | Weight | Method |
+|-----------|--------|--------|
+| Message similarity | 55% | Levenshtein distance on normalized messages — strips conventional commit prefixes (`fix:`, `feat:`) and noise words (`wip`, `temp`, `minor`) before comparing |
+| File proximity | 30% | Jaccard similarity of changed file sets — commits touching the same files score high regardless of message wording |
+| Directory overlap | 15% | Jaccard similarity of parent directories — weaker structural signal, useful when file names differ but work is in the same area |
 
 Time proximity and branch origin are **intentionally excluded**. They group commits that happen to be close in time or on the same branch, not commits that are semantically related — which is the wrong heuristic for history cleanup.
 
@@ -138,13 +159,16 @@ Place a `.gitshrinkrc` in your project root (or add a `gitshrink` key to `packag
 `git-shrink analyze` and `git-shrink stats` are **read-only**. They never touch your git history.
 
 `git-shrink apply` rewrites history via interactive rebase. It will:
-
 - Show a full preview of the rebase plan
 - Warn you explicitly that history will be rewritten
 - Require a confirmation prompt before executing
 - Print `git rebase --abort` instructions if anything goes wrong
 
-**Never run on shared branches** that other developers have pulled without coordinating first.
+**Pushed-commit guardrail** — `apply` will refuse to run if any commit in the plan has already been pushed to a remote, and will tell you exactly which ones. To bypass this on a feature or fix branch where force-pushing is acceptable, use `--force`.
+
+**Empty-commit detection** — if a squash group's commits cancel each other out (e.g. "add logs" followed by "remove logs"), `analyze` warns you at plan-generation time and `apply` automatically drops the empty result rather than halting mid-rebase.
+
+**Never run on shared branches** that other developers have pulled without coordinating first. Always use `git push --force-with-lease` (not `--force`) after applying on a pushed branch.
 
 ---
 
@@ -175,7 +199,7 @@ git log --oneline
 ## Limitations
 
 - Analyzes up to ~200 commits efficiently (O(n²) pair scoring). For larger ranges, use `--from`/`--to` to target specific ranges.
-- Merge commits are included in analysis but rarely grouped (they typically touch many files with distinct messages).
+- Merge commits are automatically excluded from analysis.
 - Rebase rewrites history — coordinate with your team before running on shared branches.
 
 ---
@@ -275,7 +299,8 @@ Create a `.gitshrinkrc` in any test repo to override defaults without flags:
 {
   "threshold": 50,
   "minGroup": 2,
-  "count": 30
+  "count": 30,
+  "cleanupPlan": true
 }
 ```
 

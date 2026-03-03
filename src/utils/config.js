@@ -8,9 +8,10 @@ const explorer = cosmiconfig("gitshrink");
  */
 export async function readConfig() {
   const defaults = {
-    threshold: 50,
-    minGroup:  2,
-    count:     50,
+    threshold:   50,
+    minGroup:    2,
+    count:       50,
+    cleanupPlan: true,  // delete plan file after successful apply
   };
 
   try {

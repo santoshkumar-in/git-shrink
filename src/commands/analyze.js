@@ -4,11 +4,12 @@ import inquirer from "inquirer";
 import { createRequire } from "module";
 import path from "path";
 import { writeFileSync } from "fs";
-import { getCommits, generateRebaseScript, getUnpushedRange } from "../core/git.js";
+import { getCommits, generateRebaseScript, getUnpushedRange, hasNetChanges } from "../core/git.js";
 import { groupCommits } from "../core/grouper.js";
 import { renderGroupTable, renderSummaryBox, renderScoreBar } from "../utils/render.js";
 
 export async function analyzeCommand(opts) {
+  // Hardcoded defaults — lowest priority. Config file beats these, CLI beats config.
   const threshold  = Number(opts.threshold  ?? 50);
   const minGroup   = Number(opts.minGroup   ?? 2);
   const count      = Number(opts.count      ?? 50);
@@ -16,8 +17,10 @@ export async function analyzeCommand(opts) {
   // ── 1. Fetch commits ────────────────────────────────────────────────────────
   const spinner = ora({ text: chalk.dim("Reading git history…"), color: "blue" }).start();
 
-  // Auto-detect unpushed commits when no explicit range or count is provided
-  const userSpecifiedRange = opts.from || opts.count !== undefined;
+  // userSpecifiedRange is true only when the user explicitly passed --from or
+  // --count. Since Commander defaults are stripped in index.js before reaching
+  // here, opts.count is undefined unless the user actually typed --count.
+  const userSpecifiedRange = !!(opts.from || opts.count);
   let fetchOpts = { count, from: opts.from, to: opts.to, branch: opts.branch };
 
   if (!userSpecifiedRange) {
@@ -133,7 +136,38 @@ export async function analyzeCommand(opts) {
     ...keepGroups,
   ].sort((a, b) => a.commits[0].date - b.commits[0].date);  // oldest-first for rebase todo order
 
-  // ── 7. Write rebase script ─────────────────────────────────────────────────
+  // ── 7. Check for empty net-diff groups and mark them as drop ──────────────
+  // A squash group like "add logs" + "remove logs" has zero net changes.
+  // Mark these as type "drop" so generateRebaseScript writes "drop" for each
+  // commit — git never tries to apply them, so no empty-commit error occurs.
+  let dropCount = 0;
+  for (const group of finalGroups) {
+    if (group.type !== "squash") continue;
+    const hashes = group.commits.map((c) => c.hash);
+    const hasChanges = await hasNetChanges(hashes);
+    if (!hasChanges) {
+      group.type = "drop";
+      dropCount++;
+    }
+  }
+
+  if (dropCount > 0) {
+    console.log(chalk.yellow(`\n  ⚠  ${dropCount} squash group(s) have no net file changes`));
+    console.log(chalk.dim("  (commits cancel each other out — marked as drop in the plan):\n"));
+    for (const g of finalGroups.filter((g) => g.type === "drop")) {
+      console.log(
+        chalk.dim("    • ") +
+        chalk.yellow(g.squashedMessage.slice(0, 60)) +
+        chalk.dim(` (${g.commits.length} commits — will be dropped)`)
+      );
+      for (const c of g.commits) {
+        console.log(chalk.dim(`        drop ${c.shortHash} ${c.message}`));
+      }
+    }
+    console.log();
+  }
+
+  // ── 8. Write rebase script ─────────────────────────────────────────────────
   const outputFile = path.join(process.cwd(), `git-shrink-plan-${Date.now()}.txt`);
   await generateRebaseScript(finalGroups, outputFile);
 
@@ -145,8 +179,6 @@ export async function analyzeCommand(opts) {
   );
   console.log(
     chalk.dim("\n  To apply:\n") +
-    chalk.cyan(`    git-shrink apply ${path.basename(outputFile)}\n`) +
-    chalk.dim("  Or manually:\n") +
-    chalk.cyan(`    GIT_SEQUENCE_EDITOR="cp ${path.basename(outputFile)}" git rebase -i HEAD~${count}\n`)
+    chalk.cyan(`    git-shrink apply ${path.basename(outputFile)}\n`)
   );
 }

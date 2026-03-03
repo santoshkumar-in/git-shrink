@@ -17,14 +17,30 @@ export async function getCommits({ count, from, to, branch } = {}) {
   // Fetch log with stat info
   let log;
   if (from) {
-    // Explicit range: from..to
+    // Explicit hash range: from..to
     log = await git.log({ from, to: to || "HEAD", "--no-merges": null });
+  } else if (branch && branch !== "HEAD") {
+    // Branch mode: fetch the last N commits reachable from the named branch.
+    // simple-git doesn't have a direct "log branch -n N" shorthand, so we
+    // use raw args to get exactly `git log <branch> --max-count=N --no-merges`.
+    const rawLog = await git.raw([
+      "log",
+      branch,
+      `--max-count=${count || 50}`,
+      "--no-merges",
+      "--format=%H%x1f%an%x1f%ae%x1f%ai%x1f%s",
+    ]);
+    // Parse the raw output into the same shape simple-git's log() returns
+    const rawCommits = rawLog.trim().split("\n").filter(Boolean).map((line) => {
+      const [hash, author_name, author_email, date, ...msgParts] = line.split("\x1f");
+      return { hash, author_name, author_email, date, message: msgParts.join(" ") };
+    });
+    log = { all: rawCommits };
   } else {
-    // Default: last N commits from HEAD (or named branch)
+    // Default: last N commits from HEAD
     log = await git.log({
       "--max-count": String(count || 50),
       "--no-merges": null,
-      ...(branch && branch !== "HEAD" ? { to: branch } : {}),
     });
   }
 
@@ -103,6 +119,27 @@ export async function getUnpushedRange() {
 }
 
 /**
+ * Checks whether a group of commits has a non-empty net diff.
+ * When squashing e.g. "add logs" + "remove logs", the combined patch is empty.
+ * Returns true if there are actual net changes, false if the result would be empty.
+ */
+export async function hasNetChanges(hashes) {
+  const git = simpleGit(process.cwd());
+  try {
+    const oldest = hashes[0];
+    const newest = hashes[hashes.length - 1];
+    // Compare the tree before the oldest commit with the tree at the newest
+    const base = await git.raw(["rev-parse", `${oldest}^`]).catch(() => null);
+    const ref = base ? base.trim() : oldest;
+    const diff = await git.diffSummary([ref, newest]);
+    return diff.files.length > 0;
+  } catch {
+    // If we can't determine, assume there are changes (safer default)
+    return true;
+  }
+}
+
+/**
  * Writes a git-rebase todo script to disk.
  */
 export async function generateRebaseScript(groups, outputPath) {
@@ -112,7 +149,13 @@ export async function generateRebaseScript(groups, outputPath) {
   for (const group of groups) {
     // commits are sorted oldest-first — oldest is the pick base, rest are squashed into it
     const [oldest, ...rest] = group.commits;
-    if (group.commits.length === 1) {
+
+    if (group.type === "drop") {
+      // Net-empty group — all commits cancel each other out, drop them all
+      for (const c of group.commits) {
+        lines.push(`drop ${c.shortHash} ${c.message}`);
+      }
+    } else if (group.commits.length === 1) {
       lines.push(`pick ${oldest.shortHash} ${oldest.message}`);
     } else {
       lines.push(`pick ${oldest.shortHash} ${group.squashedMessage || oldest.message}`);

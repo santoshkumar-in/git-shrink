@@ -1,5 +1,6 @@
 {
   "threshold": 60,
   "minGroup": 2,
-  "count": 50
+  "count": 50,
+  "cleanupPlan": true
 }
