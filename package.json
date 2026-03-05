@@ -48,8 +48,11 @@
     "cli",
     "devtools"
   ],
-  "author": "Santosh Kumar <github.com/santoshkumar-in>",
+  "author": "santoshkumar-in",
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "dependencies": {
     "chalk": "^5.3.0",
     "cli-table3": "^0.6.3",
@@ -70,5 +73,10 @@
     "globals": "^17.4.0",
     "jest": "^30.2.0",
     "standard-version": "^9.5.0"
-  }
+  },
+  "files": [
+    "index.js",
+    "src/",
+    "README.md"
+  ]
 }
