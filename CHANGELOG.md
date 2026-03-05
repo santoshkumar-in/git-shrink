@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [1.1.2](https://github.com/santoshkumar-in/git-shrink/compare/v1.1.1...v1.1.2) (2026-03-05)
+
+
+### Bug Fixes
+
+* add globals import to eslint config ([efb4c35](https://github.com/santoshkumar-in/git-shrink/commit/efb4c35cf658c9217c8130448a20fd8f3da80064))
+
 ### [1.1.1](https://github.com/santoshkumar-in/git-shrink/compare/v1.1.0...v1.1.1) (2026-03-05)
 
 
