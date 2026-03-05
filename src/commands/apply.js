@@ -15,9 +15,9 @@ export async function applyCommand(rebaseFile, opts) {
 
   const plan = readFileSync(filePath, "utf8").trim();
   const lines = plan.split("\n").filter((l) => l.trim());
-  const pickCount   = lines.filter((l) => l.startsWith("pick")).length;
+  const pickCount = lines.filter((l) => l.startsWith("pick")).length;
   const squashCount = lines.filter((l) => l.startsWith("squash")).length;
-  const dropCount   = lines.filter((l) => l.startsWith("drop")).length;
+  const dropCount = lines.filter((l) => l.startsWith("drop")).length;
 
   // Extract all action lines in order: [{ action, hash, message }, ...]
   const actionLines = lines
@@ -41,7 +41,7 @@ export async function applyCommand(rebaseFile, opts) {
     const action = actionLines[i].action;
     const nextAction = actionLines[i + 1]?.action;
 
-    const isDrop   = action === "drop";
+    const isDrop = action === "drop";
     const isSquash = action === "squash";
     // A pick that is immediately followed by a squash heads a squash group
     const isSquashHead = action === "pick" && nextAction === "squash";
@@ -153,7 +153,7 @@ export async function applyCommand(rebaseFile, opts) {
 
   if (opts.dryRun) {
     console.log(chalk.dim("\n  Dry run — rebase not executed.\n"));
-    try { require("fs").unlinkSync(tmpPlanPath); } catch {}
+    try { require("fs").unlinkSync(tmpPlanPath); } catch { }
     return;
   }
 
@@ -189,7 +189,7 @@ export async function applyCommand(rebaseFile, opts) {
 
   if (!confirmed) {
     console.log(chalk.dim("\n  Cancelled. No changes made.\n"));
-    try { (await import("fs")).unlinkSync(tmpPlanPath); } catch {}
+    try { (await import("fs")).unlinkSync(tmpPlanPath); } catch { }
     return;
   }
 
@@ -216,12 +216,13 @@ export async function applyCommand(rebaseFile, opts) {
     }
 
     console.log(chalk.dim(`\n  Review your history with: `) + chalk.cyan("git log --oneline\n"));
-  } catch (err) {
+    // eslint-disable-next-line no-unused-vars
+  } catch (_err) {
     spinner.fail(chalk.red("Rebase failed."));
     console.log(chalk.dim("\n  To abort: ") + chalk.cyan("git rebase --abort"));
     console.log(chalk.dim("  To continue after resolving conflicts: ") + chalk.cyan("git rebase --continue\n"));
   } finally {
     // Clean up temp file
-    try { (await import("fs")).unlinkSync(tmpPlanPath); } catch {}
+    try { (await import("fs")).unlinkSync(tmpPlanPath); } catch { }
   }
 }

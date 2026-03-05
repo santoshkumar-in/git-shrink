@@ -13,6 +13,7 @@ export default [
       // your custom rules here
       "no-unused-vars": "warn",
       "no-console": "off",
+      "no-empty": ["error", { "allowEmptyCatch": true }],
     },
   },
 ];
