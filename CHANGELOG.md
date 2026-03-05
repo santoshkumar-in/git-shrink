@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [1.1.4](https://github.com/santoshkumar-in/git-shrink/compare/v1.1.3...v1.1.4) (2026-03-05)
+
+
+### Bug Fixes
+
+* eslint issues ([5ed9ce7](https://github.com/santoshkumar-in/git-shrink/commit/5ed9ce72c831a250191b67a247ef2472bd978c15))
+
 ### [1.1.3](https://github.com/santoshkumar-in/git-shrink/compare/v1.1.2...v1.1.3) (2026-03-05)
 
 
