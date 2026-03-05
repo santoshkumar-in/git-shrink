@@ -1,6 +1,6 @@
 {
   "name": "git-shrink",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Semantic git history compressor — intelligently squashes bloated commit histories by grouping related commits across file proximity, message similarity, time windows, and branch origin.",
   "main": "src/index.js",
   "bin": {

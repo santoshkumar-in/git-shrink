@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [1.1.1](https://github.com/santoshkumar-in/git-shrink/compare/v1.1.0...v1.1.1) (2026-03-05)
+
+
+### Bug Fixes
+
+* Error in publishing package ([54c5b3b](https://github.com/santoshkumar-in/git-shrink/commit/54c5b3b4b1434a70cf064290e4620292f839ec54))
+
 ## 1.1.0 (2026-03-05)
 
 
