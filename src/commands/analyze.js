@@ -1,12 +1,10 @@
 import chalk from "chalk";
 import ora from "ora";
 import inquirer from "inquirer";
-import { createRequire } from "module";
 import path from "path";
-import { writeFileSync } from "fs";
 import { getCommits, generateRebaseScript, getUnpushedRange, hasNetChanges } from "../core/git.js";
 import { groupCommits } from "../core/grouper.js";
-import { renderGroupTable, renderSummaryBox, renderScoreBar } from "../utils/render.js";
+import { renderGroupTable, renderSummaryBox } from "../utils/render.js";
 
 export async function analyzeCommand(opts) {
   // Hardcoded defaults — lowest priority. Config file beats these, CLI beats config.
