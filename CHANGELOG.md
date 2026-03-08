@@ -2,6 +2,8 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [1.2.1](https://github.com/santoshkumar-in/git-shrink/compare/v1.2.0...v1.2.1) (2026-03-08)
+
 ## 1.2.0 (2026-03-05)
 
 
