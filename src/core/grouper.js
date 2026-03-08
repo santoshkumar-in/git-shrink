@@ -114,7 +114,8 @@ export function groupCommits(commits, { threshold = 50, minGroup = 2 } = {}) {
     const runLength = runEnd - i + 1;
 
     if (runLength >= minGroup) {
-      const runCommits = ordered.slice(i, runEnd + 1);
+      const runCommits = ordered.slice(i, runEnd + 1)
+  .sort((a, b) => a.date - b.date);
 
       // Avg score across pairs in this run
       let totalScore = 0;

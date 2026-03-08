@@ -140,72 +140,40 @@ export async function hasNetChanges(hashes) {
 }
 
 /**
- * Writes a complete git-shrink plan file to disk.
+ * Writes a git rebase -i todo list to disk.
  *
- * Walks ALL commits oldest→newest. Each commit is either:
- *   - the first commit of an approved squash group  → pick + squash block
- *   - inside an approved squash group (not first)   → skipped (covered by block)
- *   - inside a drop group                           → omitted entirely
- *   - everything else                               → pick
+ * Receives an ordered flat list of groups (oldest-first) where every
+ * commit in the range is accounted for — solo keep groups, squash groups,
+ * or drop groups. The caller (analyze.js) builds this complete ordered list.
  *
- * This produces a complete ordered plan that apply.js can execute
- * as a standard git rebase -i todo list.
- *
- * @param {Array}  allCommits  - Full commit list newest-first (as returned by getCommits)
- * @param {Array}  groups      - All groups (approved squash, keep, drop) newest-first
- * @param {string} outputPath  - File path to write the plan to
+ * Format:
+ *   pick   <hash> <message>   — solo commit or squash group head
+ *   squash <hash> <message>   — subsequent commits in a squash group
+ *   drop   <hash> <message>   — commit to remove (net diff zero)
  */
-export async function generateRebaseScript(allCommits, groups, outputPath) {
+export async function generateRebaseScript(groups, outputPath) {
   const { writeFileSync } = await import("fs");
-
-  // Work oldest-first throughout
-  const commits = [...allCommits].reverse();
-
-  // Build a hash → group map for quick lookup
-  // Key: shortHash, Value: the group object
-  const hashToGroup = new Map();
-  for (const group of groups) {
-    for (const c of group.commits) {
-      hashToGroup.set(c.shortHash, group);
-    }
-  }
-
-  // Track which commits we've already emitted (as part of a squash block)
-  const emitted = new Set();
-
   const lines = [];
 
-  for (const commit of commits) {
-    if (emitted.has(commit.shortHash)) continue;
-
-    const group = hashToGroup.get(commit.shortHash);
-
-    if (!group || group.type === "keep") {
-      // Plain commit — just pick it
-      lines.push(`pick ${commit.shortHash} ${commit.message}`);
-
-    } else if (group.type === "drop") {
-      // Net diff is zero — commits fully cancel out.
-      // Write as comments (git ignores them) so the plan stays auditable.
-      // Mark all commits in the group as emitted so we skip them in the loop.
-      for (const c of group.commits) emitted.add(c.shortHash);
+  for (const group of groups) {
+    if (group.type === "drop") {
       for (const c of group.commits) {
-        lines.push(`# dropped ${c.shortHash} ${c.message}`);
+        lines.push(`drop ${c.shortHash} ${c.message}`);
       }
       lines.push("");
 
-    } else if (group.type === "squash") {
-      // This commit is the oldest in its squash group (first we encounter
-      // walking oldest-first) — emit the full pick + squash block
-      // group.commits is already oldest-first (set by grouper)
+    } else if (group.type === "keep" || group.commits.length === 1) {
+      const c = group.commits[0];
+      lines.push(`pick ${c.shortHash} ${c.message}`);
+      lines.push(""); // blank line between groups for readability
+    } else {
+      // squash group — oldest commit is the pick head
       const [oldest, ...rest] = group.commits;
       lines.push(`pick ${oldest.shortHash} ${group.squashedMessage || oldest.message}`);
       for (const c of rest) {
         lines.push(`squash ${c.shortHash} ${c.message}`);
       }
-      // Mark all as emitted so we skip them when we encounter them later
-      for (const c of group.commits) emitted.add(c.shortHash);
-      lines.push(""); // blank line after each group for readability
+      lines.push(""); // blank line between groups for readability
     }
   }
 

@@ -204,10 +204,43 @@ export async function analyzeCommand(opts) {
   }
 
   // ── 9. Write plan ───────────────────────────────────────────────────────────
-  const finalGroups = [...approvedGroups, ...droppedGroups, ...keepGroups];
+  // Build a complete ordered flat group list oldest-first.
+  // Every commit in `commits` must appear exactly once so the plan is a
+  // complete rebase todo — no commits silently dropped or duplicated.
+  //
+  // Strategy: walk commits oldest-first. For each commit, check if it
+  // belongs to an approved squash group or dropped group. If yes, emit
+  // that group (once) when we hit its first commit. Otherwise emit a
+  // solo keep group.
+  const approvedHashSet = new Map(); // shortHash → group
+  for (const g of [...approvedGroups, ...droppedGroups]) {
+    for (const c of g.commits) approvedHashSet.set(c.shortHash, g);
+  }
+
+  const emitted = new Set();
+  const orderedGroups = [];
+
+  for (const commit of [...commits].reverse()) { // oldest-first
+    if (emitted.has(commit.shortHash)) continue;
+
+    const group = approvedHashSet.get(commit.shortHash);
+    if (group) {
+      orderedGroups.push(group);
+      for (const c of group.commits) emitted.add(c.shortHash);
+    } else {
+      // Not in any approved/drop group — plain pick
+      orderedGroups.push({
+        type: "keep",
+        commits: [commit],
+        squashedMessage: commit.message,
+        avgScore: 0,
+      });
+      emitted.add(commit.shortHash);
+    }
+  }
 
   const outputFile = path.join(process.cwd(), `git-shrink-plan-${Date.now()}.txt`);
-  await generateRebaseScript(commits, finalGroups, outputFile);
+  await generateRebaseScript(orderedGroups, outputFile);
 
   const finalAfter = approvedGroups.length + keepGroups.length;
   renderSummaryBox({
