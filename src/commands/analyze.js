@@ -7,17 +7,13 @@ import { groupCommits } from "../core/grouper.js";
 import { renderGroupTable, renderSummaryBox } from "../utils/render.js";
 
 export async function analyzeCommand(opts) {
-  // Hardcoded defaults — lowest priority. Config file beats these, CLI beats config.
-  const threshold  = Number(opts.threshold  ?? 50);
-  const minGroup   = Number(opts.minGroup   ?? 2);
-  const count      = Number(opts.count      ?? 50);
+  const threshold = Number(opts.threshold ?? 50);
+  const minGroup  = Number(opts.minGroup  ?? 2);
+  const count     = Number(opts.count     ?? 50);
 
   // ── 1. Fetch commits ────────────────────────────────────────────────────────
   const spinner = ora({ text: chalk.dim("Reading git history…"), color: "blue" }).start();
 
-  // userSpecifiedRange is true only when the user explicitly passed --from or
-  // --count. Since Commander defaults are stripped in index.js before reaching
-  // here, opts.count is undefined unless the user actually typed --count.
   const userSpecifiedRange = !!(opts.from || opts.count);
   let fetchOpts = { count, from: opts.from, to: opts.to, branch: opts.branch };
 
@@ -38,138 +34,188 @@ export async function analyzeCommand(opts) {
   }
 
   spinner.succeed(
-    chalk.green(`Loaded`) +
+    chalk.green("Loaded") +
     chalk.bold(` ${commits.length} `) +
     chalk.green("commits")
   );
 
   // ── 2. Run grouping engine ──────────────────────────────────────────────────
   const groupSpinner = ora({ text: chalk.dim("Scoring commit pairs…"), color: "blue" }).start();
-
   const groups = groupCommits(commits, { threshold, minGroup });
+  groupSpinner.stop();
 
-  const squashGroups  = groups.filter((g) => g.type === "squash");
-  const keepGroups    = groups.filter((g) => g.type === "keep");
-  const totalBefore   = commits.length;
-  const totalAfter    = squashGroups.length + keepGroups.length;
-  const reduction     = Math.round((1 - totalAfter / totalBefore) * 100);
+  const candidateGroups = groups.filter((g) => g.type === "squash");
+  const keepGroups      = groups.filter((g) => g.type === "keep");
 
-  groupSpinner.succeed(
-    chalk.green(`Found `) +
-    chalk.bold(`${squashGroups.length}`) +
-    chalk.green(` squash group(s) — history shrinks `) +
-    chalk.bold.hex("#4a9eff")(`${totalBefore} → ${totalAfter} commits`) +
-    chalk.green(` (${reduction}% reduction)`)
-  );
-
-  if (squashGroups.length === 0) {
+  if (candidateGroups.length === 0) {
     console.log(chalk.yellow("\n  ✓ Your commit history looks clean. Nothing to squash.\n"));
     return;
   }
 
-  // ── 3. Render groups ────────────────────────────────────────────────────────
+  // ── 3. Pre-check net diffs — flag cancel-out groups, don't classify yet ─────
+  // We flag each group with isNetEmpty=true if its commits fully cancel out.
+  // The final drop/squash/skip decision is made by the user in the prompt below.
+  // In --auto mode we treat isNetEmpty groups as drops automatically.
+  const diffSpinner = ora({ text: chalk.dim("Checking net diffs…"), color: "blue" }).start();
+  for (const group of candidateGroups) {
+    const hashes = group.commits.map((c) => c.hash);
+    group.isNetEmpty = !(await hasNetChanges(hashes));
+  }
+  diffSpinner.stop();
+
+  // ── 4. Summary ──────────────────────────────────────────────────────────────
+  const netEmptyCount = candidateGroups.filter((g) => g.isNetEmpty).length;
+  const totalBefore   = commits.length;
+  // Rough estimate for display — exact number depends on user choices
+  const totalAfter    = candidateGroups.length + keepGroups.length;
+  const reduction     = Math.round((1 - totalAfter / totalBefore) * 100);
+
+  console.log(
+    "\n" +
+    chalk.green("  Found ") +
+    chalk.bold(`${candidateGroups.length}`) +
+    chalk.green(" group(s) — history could shrink ") +
+    chalk.bold.hex("#4a9eff")(`${totalBefore} → ${totalAfter} commits`) +
+    chalk.green(` (${reduction}% reduction)`) +
+    (netEmptyCount > 0 ? chalk.dim(`  [${netEmptyCount} cancel-out]`) : "")
+  );
+
+  // ── 5. Render group tables ──────────────────────────────────────────────────
   console.log();
-  for (let i = 0; i < squashGroups.length; i++) {
-    const g = squashGroups[i];
-    renderGroupTable(g, i + 1, squashGroups.length);
+  for (let i = 0; i < candidateGroups.length; i++) {
+    renderGroupTable(candidateGroups[i], i + 1, candidateGroups.length);
+    if (candidateGroups[i].isNetEmpty) {
+      console.log(
+        chalk.yellow("  ⚠  Net diff is zero") +
+        chalk.dim(" — these commits fully cancel each other out.\n")
+      );
+    }
   }
 
-  // ── 4. Dry-run exits here ───────────────────────────────────────────────────
+  // ── 6. Dry-run exits here ───────────────────────────────────────────────────
   if (opts.dryRun) {
-    renderSummaryBox({ totalBefore, totalAfter, reduction, squashGroups, dryRun: true });
+    renderSummaryBox({ totalBefore, totalAfter, reduction, squashGroups: candidateGroups, dryRun: true });
     console.log(chalk.dim("\n  Dry run — no files written.\n"));
     return;
   }
 
-  // ── 5. Auto mode skips prompts ─────────────────────────────────────────────
-  let approvedGroups = [...squashGroups];
+  // ── 7. Interactive review ───────────────────────────────────────────────────
+  // cancel-out groups get a different prompt (Drop vs Skip, no Squash/Edit).
+  // regular groups get the normal Squash / Edit / Skip prompt.
+  // --auto: squash all regular groups, drop all cancel-out groups.
+  const approvedGroups = []; // type="squash"
+  const droppedGroups  = []; // type="drop"
 
-  if (!opts.auto) {
+  if (opts.auto) {
+    for (const group of candidateGroups) {
+      if (group.isNetEmpty) {
+        group.type = "drop";
+        droppedGroups.push(group);
+      } else {
+        approvedGroups.push(group);
+      }
+    }
+  } else {
     console.log(chalk.bold.dim("  Review each group:\n"));
 
-    approvedGroups = [];
-    for (const group of squashGroups) {
-      const { action } = await inquirer.prompt([
-        {
+    for (const group of candidateGroups) {
+      if (group.isNetEmpty) {
+        // ── Cancel-out group prompt ──────────────────────────────────────────
+        console.log(
+          chalk.yellow("  ⚠  Group: ") +
+          chalk.white(group.squashedMessage.slice(0, 60)) +
+          chalk.dim(` (${group.commits.length} commits — net diff is zero)`)
+        );
+
+        const { action } = await inquirer.prompt([{
+          type: "list",
+          name: "action",
+          message: "These commits fully undo each other. What do you want to do?",
+          choices: [
+            { name: chalk.red("✕ Drop both from history (safe — no changes lost)"), value: "drop" },
+            { name: chalk.dim("— Skip (keep as individual picks)"),                  value: "skip" },
+          ],
+        }]);
+
+        if (action === "drop") {
+          group.type = "drop";
+          droppedGroups.push(group);
+          console.log(chalk.dim(`  → Marked for drop.\n`));
+        } else {
+          console.log(chalk.dim(`  → Kept as individual picks.\n`));
+          // group stays type="squash" but won't be in approvedGroups,
+          // so generateRebaseScript will emit each commit as a plain pick
+          // (handled in step 9 via the keepGroups fallback)
+          for (const c of group.commits) {
+            keepGroups.push({ type: "keep", commits: [c], squashedMessage: c.message, avgScore: 0 });
+          }
+        }
+
+      } else {
+        // ── Regular squash group prompt ──────────────────────────────────────
+        const { action } = await inquirer.prompt([{
           type: "list",
           name: "action",
           message:
-            chalk.bold(`Group: `) +
+            chalk.bold("Group: ") +
             chalk.hex("#4a9eff")(group.squashedMessage.slice(0, 60)) +
             chalk.dim(` (${group.commits.length} commits, score: ${group.avgScore})`),
           choices: [
-            { name: chalk.green("✓ Squash this group"), value: "squash" },
-            { name: chalk.yellow("✎ Edit suggested message"), value: "edit" },
-            { name: chalk.red("✗ Skip this group"), value: "skip" },
+            { name: chalk.green("✓ Squash this group"),       value: "squash" },
+            { name: chalk.yellow("✎ Edit suggested message"), value: "edit"   },
+            { name: chalk.red("✗ Skip this group"),           value: "skip"   },
           ],
-        },
-      ]);
+        }]);
 
-      if (action === "skip") continue;
+        if (action === "skip") {
+          console.log(chalk.dim(`  → Kept as individual picks.\n`));
+          continue;
+        }
 
-      if (action === "edit") {
-        const { newMessage } = await inquirer.prompt([
-          {
+        if (action === "edit") {
+          const { newMessage } = await inquirer.prompt([{
             type: "input",
             name: "newMessage",
             message: "  New commit message:",
             default: group.squashedMessage,
-          },
-        ]);
-        group.squashedMessage = newMessage;
-      }
+          }]);
+          group.squashedMessage = newMessage;
+        }
 
-      approvedGroups.push(group);
+        approvedGroups.push(group);
+      }
     }
   }
 
-  if (approvedGroups.length === 0) {
+  if (approvedGroups.length === 0 && droppedGroups.length === 0) {
     console.log(chalk.yellow("\n  No groups approved. Nothing written.\n"));
     return;
   }
 
-  // ── 6. Build final group list (approved squashes + solo keeps) ─────────────
-  const finalGroups = [
-    ...approvedGroups,
-    ...keepGroups,
-  ].sort((a, b) => a.commits[0].date - b.commits[0].date);  // oldest-first for rebase todo order
-
-  // ── 7. Check for empty net-diff groups and mark them as drop ──────────────
-  // A squash group like "add logs" + "remove logs" has zero net changes.
-  // Mark these as type "drop" so generateRebaseScript writes "drop" for each
-  // commit — git never tries to apply them, so no empty-commit error occurs.
-  let dropCount = 0;
-  for (const group of finalGroups) {
-    if (group.type !== "squash") continue;
-    const hashes = group.commits.map((c) => c.hash);
-    const hasChanges = await hasNetChanges(hashes);
-    if (!hasChanges) {
-      group.type = "drop";
-      dropCount++;
-    }
-  }
-
-  if (dropCount > 0) {
-    console.log(chalk.yellow(`\n  ⚠  ${dropCount} squash group(s) have no net file changes`));
-    console.log(chalk.dim("  (commits cancel each other out — marked as drop in the plan):\n"));
-    for (const g of finalGroups.filter((g) => g.type === "drop")) {
-      console.log(
-        chalk.dim("    • ") +
-        chalk.yellow(g.squashedMessage.slice(0, 60)) +
-        chalk.dim(` (${g.commits.length} commits — will be dropped)`)
-      );
+  // ── 8. Report what will be dropped ─────────────────────────────────────────
+  if (droppedGroups.length > 0) {
+    console.log(chalk.dim(`\n  Will drop ${droppedGroups.reduce((n, g) => n + g.commits.length, 0)} commit(s):`));
+    for (const g of droppedGroups) {
       for (const c of g.commits) {
-        console.log(chalk.dim(`        drop ${c.shortHash} ${c.message}`));
+        console.log(chalk.dim("    ✕ ") + chalk.red(c.shortHash) + chalk.dim("  " + c.message));
       }
     }
     console.log();
   }
 
-  // ── 8. Write rebase script ─────────────────────────────────────────────────
-  const outputFile = path.join(process.cwd(), `git-shrink-plan-${Date.now()}.txt`);
-  await generateRebaseScript(finalGroups, outputFile);
+  // ── 9. Write plan ───────────────────────────────────────────────────────────
+  const finalGroups = [...approvedGroups, ...droppedGroups, ...keepGroups];
 
-  renderSummaryBox({ totalBefore, totalAfter: finalGroups.length, reduction, squashGroups: approvedGroups });
+  const outputFile = path.join(process.cwd(), `git-shrink-plan-${Date.now()}.txt`);
+  await generateRebaseScript(commits, finalGroups, outputFile);
+
+  const finalAfter = approvedGroups.length + keepGroups.length;
+  renderSummaryBox({
+    totalBefore,
+    totalAfter: finalAfter,
+    reduction: Math.round((1 - finalAfter / totalBefore) * 100),
+    squashGroups: approvedGroups,
+  });
 
   console.log(
     chalk.bold("\n  Rebase plan written to: ") +
